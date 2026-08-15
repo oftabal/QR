@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OFTABAL – Platby</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+ background:linear-gradient(180deg,#eef4f6,#f8fafc); color:#14343a;
+}
+.card{
+ width:min(620px,calc(100% - 28px)); background:#fff; border-radius:30px;
+ padding:30px; box-shadow:0 20px 60px rgba(17,52,58,.12); text-align:center;
+}
+.logo{
+ width:62px;height:62px;border-radius:18px;margin:0 auto 12px;
+ display:flex;align-items:center;justify-content:center;
+ background:linear-gradient(135deg,#1d7b8c,#2f5f68);color:#fff;font-size:22px;font-weight:800;
+}
+h1{margin:0;font-size:28px} .sub{color:#6b7c80;margin:7px 0 28px}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+a{
+ text-decoration:none; min-height:180px; border-radius:24px; display:flex;
+ flex-direction:column;align-items:center;justify-content:center;color:#fff;
+ font-size:25px;font-weight:800;box-shadow:0 12px 28px rgba(17,52,58,.14);
+ transition:.12s transform;
+}
+a:active{transform:scale(.98)}
+.cash{background:linear-gradient(135deg,#50575a,#24292b)}
+.qr{background:linear-gradient(135deg,#1f7a8c,#23515a)}
+.icon{font-size:52px;margin-bottom:10px}.hint{font-size:13px;font-weight:500;opacity:.85;margin-top:6px}
+.footer{margin-top:24px;color:#8a999d;font-size:12px}
+@media(max-width:560px){.card{padding:22px}.buttons{grid-template-columns:1fr}a{min-height:145px}}
+</style>
+</head>
+<body>
+<div class="card">
+ <div class="logo">OF</div>
+ <h1>OFTABAL s.r.o.</h1>
+ <div class="sub">Vyber způsob platby</div>
+ <div class="buttons">
+  <a class="cash" href="hotovost.html">
+   <div class="icon">💵</div>
+   HOTOVĚ
+   <div class="hint">Hotovostní pokladna</div>
+  </a>
+  <a class="qr" href="qr.html">
+   <div class="icon">▦</div>
+   QR PLATBA
+   <div class="hint">Nyní nebo se splatností</div>
+  </a>
+ </div>
+ <div class="footer">OFTABAL • Platby</div>
+</div>
+</body>
+</html>
