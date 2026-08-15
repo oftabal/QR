@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OFTABAL – HOTOVOST</title>
+<style>
+:root{--bg:#eef4f6;--card:#fff;--ink:#14343a;--muted:#6b7c80;--line:#d8e3e6}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,Segoe UI,Arial,sans-serif;background:linear-gradient(180deg,#eef4f6,#f8fafc);color:#1b2528}
+.wrap{max-width:760px;margin:auto;padding:8px}.card{background:#fff;padding:16px;border-radius:28px;box-shadow:0 20px 60px rgba(0,0,0,.08)}
+.header{text-align:center;margin-bottom:14px}.header .icon{font-size:42px}.header h1{font-size:22px;margin:3px 0;color:var(--ink)}
+.status{text-align:center;padding:7px;border-radius:10px;margin-bottom:5px;font-weight:bold;background:#eee}.small{text-align:center;font-size:12px;color:var(--muted);margin-bottom:10px}
+label{font-size:12px;font-weight:700;color:#40545a}input,select{width:100%;padding:11px;border-radius:14px;border:1px solid #e5e7eb;font-size:16px;margin:5px 0 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.full{grid-column:1/-1}.pay{background:linear-gradient(135deg,#4b5563,#111827);color:#fff;width:100%;padding:15px;border:0;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer}
+.actions{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}button{padding:10px;border:0;border-radius:12px;cursor:pointer}.dark{background:#374151;color:#fff}.green{background:#10b981;color:#fff}.red{background:#ef4444;color:#fff}
+#history{display:none;margin-top:10px;overflow:auto}table{width:100%;border-collapse:collapse}td,th{border:1px solid #eee;padding:6px;font-size:12px;text-align:center}
+@media(max-width:650px){.grid,.actions{grid-template-columns:1fr}.full{grid-column:auto}}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+ <div class="header"><div class="icon">💵</div><h1>HOTOVOST – OFTABAL s.r.o.</h1></div>
+ <div id="syncStatus" class="status">Kontrola…</div>
+ <div id="syncDetails" class="small">Lokál: 0 | Server: ?</div>
+
+ <div class="grid">
+  <div class="full"><label>Pacient</label><input id="patient" placeholder="Jméno a příjmení"></div>
+  <div class="full"><label>Poznámka</label><input id="note" placeholder="ZP / adresa / RČ / poznámka"></div>
+  <div><label>Výkon</label><select id="service"><option value="OCT 1000|1000">OCT 1000 Kč</option><option value="OCT 500|500">OCT 500 Kč</option><option value="Jiný|">Jiný výkon</option></select></div>
+  <div><label>Částka</label><input id="amount" readonly inputmode="numeric"></div>
+ </div>
+ <button class="pay" onclick="cashPay()">HOTOVĚ – ULOŽIT A VYTISKNOUT</button>
+
+ <div class="actions">
+  <button class="dark" onclick="toggleHistory()">Historie</button>
+  <button class="green" onclick="exportCSV()">CSV</button>
+  <button class="green" onclick="cashBook()">Pokladní kniha</button>
+  <button class="red" onclick="deleteLast()">Smazat poslední</button>
+ </div>
+ <input id="search" placeholder="Hledat pacienta / výkon / poznámku" style="display:none;margin-top:10px" oninput="render()">
+ <div id="history"><table id="table"></table></div>
+</div></div>
+
+<script>
+const TURSO_URL = "https://forvision-oftabal.aws-eu-west-1.turso.io";
+const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODY2ODk5ODQsImlkIjoiMDE5ZmZlZjMtNTcwMS03ZWVkLTgxNzMtNjY5NDQ4ODJlZDNkIiwia2lkIjoicm1mdG01TUZZNllRTGs4QXR1TGRnQzRENGlmTDFidFhnSWxlSXF0OU9xZyIsInJpZCI6ImUwODJlZWY1LTVkZDAtNDhhYi1hMDQxLWMxOGU0NWY4N2IzNSJ9.PejDY9gy9YD7DpvD7Xck6tbYTP4SFUYMO3ztnw1nUN31lhkOVi22Js97bhSAbejiNJI7aRa85YTzr0zPcvEOAQ";
+const LOCAL_KEY = "oftabal_cash_turso_v1";
+let records=[], syncing=false, serverCount=null;
+const $=id=>document.getElementById(id);
+const money=n=>Number(n||0).toLocaleString("cs-CZ")+" Kč";
+const fmt=x=>new Date(x).toLocaleString("cs-CZ");
+function esc(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+async function turso(sql,args=[]){
+ const res=await fetch(TURSO_URL+"/v2/pipeline",{method:"POST",headers:{"Authorization":"Bearer "+TURSO_TOKEN,"Content-Type":"application/json"},body:JSON.stringify({requests:[{type:"execute",stmt:{sql,args:args.map(v=>({type:v===null?"null":typeof v==="number"?"integer":"text",value:v===null?null:String(v)}))}},{type:"close"}]})});
+ if(!res.ok) throw new Error("Turso HTTP "+res.status);
+ const j=await res.json(),r=j.results?.[0]; if(r?.type==="error")throw new Error(r.error?.message||"Turso chyba"); return r?.response?.result||{cols:[],rows:[]};
+}
+function rows(r){const c=(r.cols||[]).map(x=>x.name);return(r.rows||[]).map(row=>{const o={};c.forEach((n,i)=>o[n]=row[i]?.value??null);return o})}
+async function ensureTable(){await turso(`CREATE TABLE IF NOT EXISTS oftabal_hotovost(id TEXT PRIMARY KEY,patient TEXT NOT NULL,service TEXT NOT NULL,amount INTEGER NOT NULL,note TEXT,date TEXT NOT NULL)`)}
+function saveLocal(){localStorage.setItem(LOCAL_KEY,JSON.stringify(records))}
+function loadLocal(){try{records=JSON.parse(localStorage.getItem(LOCAL_KEY)||"[]");if(!Array.isArray(records))records=[]}catch(e){records=[]}}
+function status(){
+ const p=records.filter(r=>r.pendingSync||r.deletedPendingSync).length, el=$("syncStatus");
+ $("syncDetails").textContent="Lokál: "+records.filter(r=>!r.deletedPendingSync).length+" | Server: "+(serverCount===null?"?":serverCount);
+ if(!navigator.onLine){el.textContent="🔴 OFFLINE – ukládám lokálně";el.style.background="#fee2e2"}
+ else if(syncing){el.textContent="🔵 Synchronizuji…";el.style.background="#dbeafe"}
+ else if(p){el.textContent="🟡 Čeká na synchronizaci: "+p;el.style.background="#fef3c7"}
+ else{el.textContent="🟢 ONLINE + SYNC OK";el.style.background="#d1fae5"}
+}
+function recalc(){const [s,a]=$("service").value.split("|");$("amount").readOnly=s!=="Jiný";$("amount").value=s==="Jiný"?"":a}
+$("service").addEventListener("change",recalc);recalc();
+function build(){return{id:Date.now().toString(36)+Math.random().toString(36).slice(2,8),patient:$("patient").value.trim(),service:$("service").value.split("|")[0],amount:Number($("amount").value),note:$("note").value.trim(),date:new Date().toISOString(),pendingSync:true}}
+async function saveRecord(r){await turso(`INSERT INTO oftabal_hotovost(id,patient,service,amount,note,date) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET patient=excluded.patient,service=excluded.service,amount=excluded.amount,note=excluded.note,date=excluded.date`,[r.id,r.patient,r.service,Number(r.amount),r.note||"",r.date])}
+async function cashPay(){
+ if(!$("patient").value.trim()){alert("Vyplň pacienta.");return} if(!Number($("amount").value)){alert("Vyplň částku.");return}
+ const r=build();records.unshift(r);saveLocal();render();status();printDoc(r);
+ $("patient").value="";$("note").value="";$("service").selectedIndex=0;recalc();
+ if(navigator.onLine)sync();
+}
+function receipt(r){return `<div style="font-family:Arial;text-align:center;padding:10px"><b>OFTABAL s.r.o.</b><br>Praha 10, Plaňanská 1<br>IČO: 29415209<br><br><b>HOTOVOSTNÍ DOKLAD</b><br><b>Datum:</b> ${esc(fmt(r.date))}<hr><b>Pacient:</b> ${esc(r.patient)}<br><b>Výkon:</b> ${esc(r.service)}<br><div style="font-size:28px;font-weight:bold;margin:12px">${money(r.amount)}</div><b>Forma úhrady:</b> Hotově<br>${r.note?`<hr>${esc(r.note)}`:""}<br><small>Vyšetření nehrazené z veřejného zdravotního pojištění</small></div>`}
+function printDoc(r){const w=window.open("","_blank");if(!w)return alert("Povol vyskakovací okna pro tisk.");w.document.write(`<html><head><meta charset="UTF-8"><title>Hotovost OFTABAL</title><style>@page{size:58mm auto;margin:0}body{margin:0}</style></head><body>${receipt(r)}</body></html>`);w.document.close();setTimeout(()=>w.print(),200)}
+function merge(local,server){const m=new Map();server.forEach(r=>m.set(String(r.id),{...r,amount:Number(r.amount),pendingSync:false,deletedPendingSync:false}));local.forEach(r=>{if(r.deletedPendingSync||r.pendingSync||!m.has(String(r.id)))m.set(String(r.id),r)});return[...m.values()].sort((a,b)=>new Date(b.date)-new Date(a.date))}
+async function sync(){
+ if(syncing||!navigator.onLine){status();return}syncing=true;status();
+ try{
+  await ensureTable();
+  for(const r of records.filter(x=>x.pendingSync&&!x.deletedPendingSync)){await saveRecord(r);r.pendingSync=false}
+  for(const r of records.filter(x=>x.deletedPendingSync)){await turso("DELETE FROM oftabal_hotovost WHERE id=?",[r.id]);r._remove=true}
+  records=records.filter(x=>!x._remove);
+  const rr=await turso("SELECT * FROM oftabal_hotovost ORDER BY date DESC");const srv=rows(rr);serverCount=srv.length;records=merge(records,srv);saveLocal();render();
+ }catch(e){console.error(e)}
+ finally{syncing=false;status()}
+}
+function visible(){const q=($("search").value||"").toLowerCase();return records.filter(r=>!r.deletedPendingSync&&(!q||(r.patient+" "+r.service+" "+(r.note||"")+" "+r.amount).toLowerCase().includes(q)))}
+function render(){const a=visible();$("table").innerHTML="<tr><th>Datum</th><th>Pacient</th><th>Výkon</th><th>Kč</th><th></th></tr>"+a.map(r=>`<tr><td>${esc(fmt(r.date))}</td><td>${esc(r.patient)}</td><td>${esc(r.service)}</td><td>${esc(r.amount)}</td><td><button class="red" onclick="del('${r.id}')">✕</button></td></tr>`).join("")}
+function toggleHistory(){const h=$("history"),s=$("search"),show=h.style.display!=="block";h.style.display=show?"block":"none";s.style.display=show?"block":"none"}
+async function del(id){const r=records.find(x=>String(x.id)===String(id));if(!r||!confirm("Opravdu smazat záznam?"))return;r.deletedPendingSync=true;r.pendingSync=false;saveLocal();render();status();if(navigator.onLine)sync()}
+function deleteLast(){const r=records.find(x=>!x.deletedPendingSync);if(!r)return alert("Historie je prázdná.");del(r.id)}
+function exportCSV(){const a=visible();if(!a.length)return alert("Není co exportovat.");let csv="\uFEFFDatum;Pacient;Výkon;Částka;Poznámka\n"+a.map(r=>[fmt(r.date),r.patient,r.service,r.amount,r.note||""].map(v=>`"${String(v).replaceAll('"','""')}"`).join(";")).join("\n");download(csv,"OFTABAL_HOTOVOST.csv","text/csv;charset=utf-8")}
+function download(t,n,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function cashBook(){const d=new Date();let m=prompt("Měsíc (1-12):",d.getMonth()+1),y=prompt("Rok:",d.getFullYear());if(!m||!y)return;const a=visible().filter(r=>{const x=new Date(r.date);return x.getMonth()+1==m&&x.getFullYear()==y});const total=a.reduce((s,r)=>s+Number(r.amount),0);const w=window.open("","_blank");w.document.write(`<html><head><meta charset="UTF-8"><title>Pokladní kniha</title></head><body style="font-family:Arial"><h2>HOTOVOSTNÍ POKLADNÍ KNIHA – OFTABAL ${String(m).padStart(2,"0")}/${y}</h2><table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;width:100%"><tr><th>Datum</th><th>Pacient</th><th>Výkon</th><th>Poznámka</th><th>Kč</th></tr>${a.map(r=>`<tr><td>${esc(fmt(r.date))}</td><td>${esc(r.patient)}</td><td>${esc(r.service)}</td><td>${esc(r.note||"")}</td><td>${r.amount}</td></tr>`).join("")}</table><h3>Celkem: ${money(total)}</h3><button onclick="window.print()">TISK</button></body></html>`);w.document.close()}
+loadLocal();render();status();sync();setInterval(sync,30000);window.addEventListener("online",sync);window.addEventListener("offline",status);
+</script>
+</body></html>
