@@ -15,10 +15,20 @@ label{font-size:12px;font-weight:700;color:#40545a}input,select{width:100%;paddi
 .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}button{padding:10px;border:0;border-radius:12px;cursor:pointer}.dark{background:#374151;color:#fff}.green{background:#10b981;color:#fff}.red{background:#ef4444;color:#fff}
 #history{display:none;margin-top:10px;overflow:auto}table{width:100%;border-collapse:collapse}td,th{border:1px solid #eee;padding:6px;font-size:12px;text-align:center}
 @media(max-width:650px){.grid,.actions{grid-template-columns:1fr}.full{grid-column:auto}}
+
+.back-payments{
+ display:inline-flex;align-items:center;gap:6px;
+ margin-bottom:12px;padding:9px 13px;border-radius:12px;
+ background:#fff;color:#14343a;border:1px solid #d8e3e6;
+ text-decoration:none;font-weight:700;font-size:14px;
+}
+
 </style>
 </head>
 <body>
-<div class="wrap"><div class="card">
+<div class="wrap">
+<a class="back-payments" href="platby.html">← Platby</a>
+<div class="card">
  <div class="header"><div class="icon">💵</div><h1>HOTOVOST – OFTABAL s.r.o.</h1></div>
  <div id="syncStatus" class="status">Kontrola…</div>
  <div id="syncDetails" class="small">Lokál: 0 | Server: ?</div>
