@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OFTABAL – QR platby</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{--ink:#14343a;--muted:#6b7c80;--line:#d8e3e6;--blue:#1d7b8c}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,Segoe UI,Arial,sans-serif;background:linear-gradient(180deg,#eef4f6,#f8fafc);color:#1b2528}
+.wrap{max-width:760px;margin:auto;padding:8px}.card{background:#fff;padding:16px;border-radius:28px;box-shadow:0 20px 60px rgba(0,0,0,.08)}
+.header{text-align:center}.header .icon{font-size:42px}.header h1{margin:2px 0 14px;color:var(--ink);font-size:22px}
+.status{text-align:center;padding:7px;border-radius:10px;margin-bottom:5px;font-weight:bold;background:#eee}.small{text-align:center;font-size:12px;color:var(--muted);margin-bottom:10px}
+label{font-size:12px;font-weight:700;color:#40545a}input,select{width:100%;padding:11px;border-radius:14px;border:1px solid #e5e7eb;font-size:16px;margin:5px 0 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.full{grid-column:1/-1}.modes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mode{padding:17px;border:0;border-radius:17px;font-size:18px;font-weight:700;color:#fff;cursor:pointer}.now{background:linear-gradient(135deg,#1f7a8c,#23515a)}.later{background:linear-gradient(135deg,#7c3aed,#4c1d95)}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}button{padding:10px;border:0;border-radius:12px;cursor:pointer}.dark{background:#374151;color:#fff}.green{background:#10b981;color:#fff}.red{background:#ef4444;color:#fff}
+#history{display:none;margin-top:10px;overflow:auto}table{width:100%;border-collapse:collapse}td,th{border:1px solid #eee;padding:6px;font-size:12px;text-align:center}
+.badge{padding:3px 7px;border-radius:999px;font-size:11px}.paid{background:#d1fae5}.waiting{background:#fef3c7}
+.overlay{position:fixed;inset:0;background:rgba(8,17,20,.72);display:none;align-items:center;justify-content:center;padding:15px;z-index:99}.modal{background:#fff;border-radius:24px;padding:20px;width:min(620px,100%);text-align:center}
+#qrcode{display:flex;justify-content:center;margin:12px}.big{font-size:30px;font-weight:800;color:var(--ink)}.modal-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:15px}
+@media(max-width:650px){.grid,.modes,.actions{grid-template-columns:1fr}.full{grid-column:auto}}
+</style></head>
+<body>
+<div class="wrap"><div class="card">
+ <div class="header"><div class="icon">▦</div><h1>QR PLATBY – OFTABAL s.r.o.</h1></div>
+ <div id="syncStatus" class="status">Kontrola…</div><div id="syncDetails" class="small">Lokál: 0 | Server: ?</div>
+ <div class="grid">
+  <div class="full"><label>Pacient</label><input id="patient" placeholder="Jméno a příjmení"></div>
+  <div class="full"><label>Poznámka</label><input id="note" placeholder="ZP / adresa / RČ / poznámka"></div>
+  <div><label>Výkon</label><select id="service"><option value="OCT 1000|1000">OCT 1000 Kč</option><option value="OCT 500|500">OCT 500 Kč</option><option value="Jiný|">Jiný výkon</option></select></div>
+  <div><label>Částka</label><input id="amount" readonly inputmode="numeric"></div>
+  <div class="full"><label>Splatnost pro QR na později</label><input id="due" type="date"></div>
+ </div>
+ <div class="modes"><button class="mode now" onclick="startQR('HNED')">QR HNED</button><button class="mode later" onclick="startQR('POZDEJI')">QR NA POZDĚJI</button></div>
+ <div class="actions"><button class="dark" onclick="toggleHistory()">Historie</button><button class="green" onclick="exportCSV()">CSV</button><button class="red" onclick="deleteLast()">Smazat poslední</button></div>
+ <input id="search" placeholder="Hledat pacienta / VS / výkon / stav" style="display:none;margin-top:10px" oninput="render()">
+ <div id="history"><table id="table"></table></div>
+</div></div>
+
+<div id="overlay" class="overlay"><div class="modal">
+ <h2 id="modeTitle">QR</h2><div id="qrcode"></div><div id="qrAmount" class="big"></div><div id="qrInfo"></div>
+ <div class="modal-actions"><button id="paidBtn" class="green" onclick="confirmPaid()">ZAPLACENO</button><button id="issueBtn" class="dark" onclick="issueLater()">VYSTAVIT NA POZDĚJI</button><button class="dark" onclick="printQR()">TISK QR</button><button class="red" onclick="closeQR()">ZRUŠIT</button></div>
+</div></div>
+
+<script>
+const TURSO_URL="https://forvision-oftabal.aws-eu-west-1.turso.io", TURSO_TOKEN="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODY2ODk5ODQsImlkIjoiMDE5ZmZlZjMtNTcwMS03ZWVkLTgxNzMtNjY5NDQ4ODJlZDNkIiwia2lkIjoicm1mdG01TUZZNllRTGs4QXR1TGRnQzRENGlmTDFidFhnSWxlSXF0OU9xZyIsInJpZCI6ImUwODJlZWY1LTVkZDAtNDhhYi1hMDQxLWMxOGU0NWY4N2IzNSJ9.PejDY9gy9YD7DpvD7Xck6tbYTP4SFUYMO3ztnw1nUN31lhkOVi22Js97bhSAbejiNJI7aRa85YTzr0zPcvEOAQ";
+const DEFAULT_IBAN="CZ5408000000002846390339";
+const LOCAL_KEY="oftabal_qr_turso_v1";
+let records=[],pending=null,syncing=false,serverCount=null;
+const $=id=>document.getElementById(id), money=n=>Number(n||0).toLocaleString("cs-CZ")+" Kč", fmt=x=>new Date(x).toLocaleString("cs-CZ");
+function esc(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+async function turso(sql,args=[]){const res=await fetch(TURSO_URL+"/v2/pipeline",{method:"POST",headers:{"Authorization":"Bearer "+TURSO_TOKEN,"Content-Type":"application/json"},body:JSON.stringify({requests:[{type:"execute",stmt:{sql,args:args.map(v=>({type:v===null?"null":typeof v==="number"?"integer":"text",value:v===null?null:String(v)}))}},{type:"close"}]})});if(!res.ok)throw new Error("Turso HTTP "+res.status);const j=await res.json(),r=j.results?.[0];if(r?.type==="error")throw new Error(r.error?.message||"Turso chyba");return r?.response?.result||{cols:[],rows:[]}}
+function rows(r){const c=(r.cols||[]).map(x=>x.name);return(r.rows||[]).map(row=>{const o={};c.forEach((n,i)=>o[n]=row[i]?.value??null);return o})}
+async function ensureTable(){await turso(`CREATE TABLE IF NOT EXISTS oftabal_qr(id TEXT PRIMARY KEY,patient TEXT NOT NULL,service TEXT NOT NULL,amount INTEGER NOT NULL,note TEXT,vs TEXT NOT NULL,mode TEXT NOT NULL,status TEXT NOT NULL,due_date TEXT,date TEXT NOT NULL,paid_at TEXT)`)}
+function load(){try{records=JSON.parse(localStorage.getItem(LOCAL_KEY)||"[]");if(!Array.isArray(records))records=[]}catch(e){records=[]}}
+function save(){localStorage.setItem(LOCAL_KEY,JSON.stringify(records))}
+function status(){const p=records.filter(r=>r.pendingSync||r.deletedPendingSync).length,e=$("syncStatus");$("syncDetails").textContent="Lokál: "+records.filter(r=>!r.deletedPendingSync).length+" | Server: "+(serverCount===null?"?":serverCount);if(!navigator.onLine){e.textContent="🔴 OFFLINE – ukládám lokálně";e.style.background="#fee2e2"}else if(syncing){e.textContent="🔵 Synchronizuji…";e.style.background="#dbeafe"}else if(p){e.textContent="🟡 Čeká na synchronizaci: "+p;e.style.background="#fef3c7"}else{e.textContent="🟢 ONLINE + SYNC OK";e.style.background="#d1fae5"}}
+function recalc(){const [s,a]=$("service").value.split("|");$("amount").readOnly=s!=="Jiný";$("amount").value=s==="Jiný"?"":a}$("service").addEventListener("change",recalc);recalc();
+(function(){const d=new Date();d.setDate(d.getDate()+14);$("due").value=d.toISOString().slice(0,10)})();
+function nextVS(){return String(new Date().getFullYear())+String(Math.floor(100000+Math.random()*900000))}
+function valid(){if(!$("patient").value.trim()){alert("Vyplň pacienta.");return false}if(!Number($("amount").value)){alert("Vyplň částku.");return false}return true}
+function startQR(mode){if(!valid())return;if(mode==="POZDEJI"&&!$("due").value){alert("Vyber datum splatnosti.");return}
+ pending={id:Date.now().toString(36)+Math.random().toString(36).slice(2,8),patient:$("patient").value.trim(),service:$("service").value.split("|")[0],amount:Number($("amount").value),note:$("note").value.trim(),vs:nextVS(),mode,status:mode==="HNED"?"CEKA_NA_POTVRZENI":"CEKA_NA_PLATBU",due_date:mode==="POZDEJI"?$("due").value:"",date:new Date().toISOString(),paid_at:""};
+ const spd=`SPD*1.0*ACC:${DEFAULT_IBAN}*AM:${pending.amount.toFixed(2)}*CC:CZK*X-VS:${pending.vs}`;
+ $("qrcode").innerHTML="";new QRCode($("qrcode"),{text:spd,width:200,height:200});$("modeTitle").textContent=mode==="HNED"?"QR – platba nyní":"QR – platba se splatností";$("qrAmount").textContent=money(pending.amount);
+ $("qrInfo").innerHTML=`<b>${esc(pending.patient)}</b><br>${esc(pending.service)}<br>VS ${esc(pending.vs)}${pending.due_date?`<br>Splatnost: ${esc(pending.due_date)}`:""}`;
+ $("paidBtn").style.display=mode==="HNED"?"inline-block":"none";$("issueBtn").style.display=mode==="POZDEJI"?"inline-block":"none";$("overlay").style.display="flex"}
+function closeQR(){$("overlay").style.display="none";pending=null}
+async function persist(r){r.pendingSync=true;records.unshift(r);save();render();status();if(navigator.onLine)await sync()}
+async function confirmPaid(){if(!pending)return;pending.status="ZAPLACENO";pending.paid_at=new Date().toISOString();const r=pending;pending=null;$("overlay").style.display="none";await persist(r);clearForm()}
+async function issueLater(){if(!pending)return;const r=pending;pending=null;$("overlay").style.display="none";await persist(r);clearForm()}
+function clearForm(){$("patient").value="";$("note").value="";$("service").selectedIndex=0;recalc();$("patient").focus()}
+async function saveRecord(r){await turso(`INSERT INTO oftabal_qr(id,patient,service,amount,note,vs,mode,status,due_date,date,paid_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET patient=excluded.patient,service=excluded.service,amount=excluded.amount,note=excluded.note,vs=excluded.vs,mode=excluded.mode,status=excluded.status,due_date=excluded.due_date,date=excluded.date,paid_at=excluded.paid_at`,[r.id,r.patient,r.service,Number(r.amount),r.note||"",r.vs,r.mode,r.status,r.due_date||"",r.date,r.paid_at||""])}
+function merge(l,s){const m=new Map();s.forEach(r=>m.set(String(r.id),{...r,amount:Number(r.amount),pendingSync:false,deletedPendingSync:false}));l.forEach(r=>{if(r.deletedPendingSync||r.pendingSync||!m.has(String(r.id)))m.set(String(r.id),r)});return[...m.values()].sort((a,b)=>new Date(b.date)-new Date(a.date))}
+async function sync(){if(syncing||!navigator.onLine){status();return}syncing=true;status();try{await ensureTable();for(const r of records.filter(x=>x.pendingSync&&!x.deletedPendingSync)){await saveRecord(r);r.pendingSync=false}for(const r of records.filter(x=>x.deletedPendingSync)){await turso("DELETE FROM oftabal_qr WHERE id=?",[r.id]);r._remove=true}records=records.filter(x=>!x._remove);const rr=await turso("SELECT * FROM oftabal_qr ORDER BY date DESC"),srv=rows(rr);serverCount=srv.length;records=merge(records,srv);save();render()}catch(e){console.error(e)}finally{syncing=false;status()}}
+function visible(){const q=($("search").value||"").toLowerCase();return records.filter(r=>!r.deletedPendingSync&&(!q||(r.patient+" "+r.vs+" "+r.service+" "+r.status+" "+(r.note||"")).toLowerCase().includes(q)))}
+function render(){const a=visible();$("table").innerHTML="<tr><th>Datum</th><th>Pacient</th><th>Kč</th><th>Režim</th><th>Stav</th><th></th></tr>"+a.map(r=>`<tr><td>${esc(fmt(r.date))}</td><td>${esc(r.patient)}<br><small>VS ${esc(r.vs)}</small></td><td>${r.amount}</td><td>${r.mode==="HNED"?"HNED":"POZDĚJI"}</td><td><span class="badge ${r.status==="ZAPLACENO"?"paid":"waiting"}">${r.status==="ZAPLACENO"?"ZAPLACENO":"ČEKÁ"}</span>${r.status!=="ZAPLACENO"?`<br><button class="green" onclick="markPaid('${r.id}')">Zaplaceno</button>`:""}</td><td><button class="red" onclick="del('${r.id}')">✕</button></td></tr>`).join("")}
+async function markPaid(id){const r=records.find(x=>x.id===id);if(!r)return;r.status="ZAPLACENO";r.paid_at=new Date().toISOString();r.pendingSync=true;save();render();status();if(navigator.onLine)sync()}
+function toggleHistory(){const h=$("history"),s=$("search"),show=h.style.display!=="block";h.style.display=show?"block":"none";s.style.display=show?"block":"none"}
+async function del(id){const r=records.find(x=>x.id===id);if(!r||!confirm("Opravdu smazat záznam?"))return;r.deletedPendingSync=true;r.pendingSync=false;save();render();status();if(navigator.onLine)sync()}
+function deleteLast(){const r=records.find(x=>!x.deletedPendingSync);if(!r)return alert("Historie je prázdná.");del(r.id)}
+function exportCSV(){const a=visible();if(!a.length)return alert("Není co exportovat.");let csv="\uFEFFDatum;Pacient;Výkon;Částka;VS;Režim;Stav;Splatnost;Poznámka\n"+a.map(r=>[fmt(r.date),r.patient,r.service,r.amount,r.vs,r.mode,r.status,r.due_date||"",r.note||""].map(v=>`"${String(v).replaceAll('"','""')}"`).join(";")).join("\n");const x=document.createElement("a");x.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));x.download="OFTABAL_QR.csv";x.click()}
+function printQR(){if(!pending)return;const qr=$("qrcode").querySelector("img")?.src||$("qrcode").querySelector("canvas")?.toDataURL();const w=window.open("","_blank");w.document.write(`<html><head><meta charset="UTF-8"><title>QR OFTABAL</title></head><body style="font-family:Arial;text-align:center"><h2>OFTABAL s.r.o.</h2><img src="${qr}" width="220"><h2>${money(pending.amount)}</h2><div>VS ${esc(pending.vs)}</div><div>${esc(pending.patient)}</div>${pending.due_date?`<div>Splatnost ${esc(pending.due_date)}</div>`:""}</body></html>`);w.document.close();setTimeout(()=>w.print(),250)}
+load();render();status();sync();setInterval(sync,30000);window.addEventListener("online",sync);window.addEventListener("offline",status);
+</script></body></html>
